@@ -1,16 +1,15 @@
 # Vigilant Potato 🌡️
 
-An ESP32-based temperature and humidity monitor built with **Arduino IDE (C++)**, a **DHT22**, an **I²C OLED**, **Wi-Fi**, **Blynk Cloud**, and **MQTT**.
+An embedded IoT temperature and humidity monitor built with an ESP32, DHT22 sensor, SSD1306 128×64 OLED, Wi-Fi, Blynk Cloud, and MQTT.
 
 ## Features
 
 - Reads temperature and relative humidity from a DHT22 sensor.
-- Shows readings on an OLED display.
-- Sends temperature and humidity to Blynk Cloud.
+- Displays readings on an SSD1306 128×64 OLED.
+- Sends temperature and humidity to Blynk Cloud using virtual pins V0 and V1.
 - Publishes readings as JSON over MQTT.
-- Retries Wi-Fi, MQTT, and Blynk connections instead of assuming the network is always available.
-
-> **Status:** The sketch has been updated in the repository, but it has not yet been verified by a successful compile or hardware/Wokwi test. Treat it as a work in progress.
+- Retries Wi-Fi, MQTT, and Blynk connections.
+- Arduino IDE / C++ sketch designed for Wokwi simulation and ESP32 development boards.
 
 ## Repository structure
 
@@ -22,82 +21,79 @@ VigilantPotato/
 ```
 
 - `VigilantPotato/VigilantPotato.ino` — main Arduino sketch.
-- `VigilantPotato/LIBRARIES.md` — Arduino IDE setup and library list.
-- `VigilantPotato/secrets.h.example` — example for configuring the Blynk token safely.
+- `VigilantPotato/LIBRARIES.md` — required libraries and setup.
+- `VigilantPotato/secrets.h.example` — optional reference for storing a token privately; the current sketch uses a token placeholder directly in the main file.
 
 ## Hardware and pin connections
-
-The current sketch is configured for these ESP32 pins:
 
 | Component | Signal | ESP32 pin |
 |---|---|---|
 | DHT22 | DATA | GPIO 4 |
 | DHT22 | VCC | 3V3 |
 | DHT22 | GND | GND |
-| I²C OLED | SDA | GPIO 21 |
-| I²C OLED | SCL | GPIO 22 |
-| OLED | VCC/GND | Follow the exact display board's voltage requirements and connect GND |
+| SSD1306 OLED | SDA | GPIO 21 |
+| SSD1306 OLED | SCL | GPIO 22 |
+| SSD1306 OLED | VCC | 3V3 (check your module requirements) |
+| SSD1306 OLED | GND | GND |
 
-The sketch currently uses the Adafruit SH110X library and an SH1107-style 128×128 OLED at I²C address `0x3C`. Your earlier Grove SH1107 display may differ by board revision. Confirm its controller, resolution, address, and voltage. If your Wokwi display is an SSD1306 128×64 model, the display library and dimensions must be changed to match the simulated component.
+OLED I²C address: `0x3C`.
 
 ## Requirements
 
 - Arduino IDE 2
 - ESP32 board support by Espressif Systems
-- Libraries: Blynk, DHT sensor library, Adafruit GFX Library, Adafruit SH110X, and PubSubClient
+- Blynk library
+- DHT sensor library by Adafruit
+- Adafruit Unified Sensor
+- Adafruit GFX Library
+- Adafruit SSD1306
+- PubSubClient
 
-See [LIBRARIES.md](VigilantPotato/LIBRARIES.md) for setup details.
+See [LIBRARIES.md](VigilantPotato/LIBRARIES.md) for installation instructions.
 
-## Configure Blynk credentials
+## Configure Blynk
 
-1. Copy `VigilantPotato/secrets.h.example` to a new file named `VigilantPotato/secrets.h`.
-2. Replace the placeholder token in `secrets.h` with your current Blynk device authentication token.
-3. Keep `secrets.h` private and **do not commit it to GitHub**.
+1. Open `VigilantPotato/VigilantPotato.ino`.
+2. Replace `PASTE_YOUR_NEW_BLYNK_TOKEN_HERE` in the `BLYNK_AUTH_TOKEN` definition with your own Blynk device token.
+3. Keep your token private. Do not commit a real token to a public repository; replace it with the placeholder before pushing changes.
+4. In Blynk, create numeric datastreams **V0** for temperature (°C) and **V1** for humidity (%), and add suitable dashboard widgets.
+5. Confirm that the template ID/name in the sketch matches your Blynk template.
 
-The sketch uses the following Blynk virtual pins:
-
-- **V0** — temperature in °C
-- **V1** — relative humidity in %
-
-In the Blynk dashboard, create matching datastreams and widgets for V0 and V1. Make sure the template ID/name and device token correspond to your own Blynk device.
+A token was exposed during development; regenerate it in Blynk before use.
 
 ## Wi-Fi settings
 
-The sketch currently uses the Wokwi simulator's guest network:
+The sketch is configured for Wokwi's guest network:
 
 - SSID: `Wokwi-GUEST`
 - Password: empty
 
-For physical hardware, replace these with your local Wi-Fi credentials. Do not publish private Wi-Fi credentials in a public repository.
+For physical hardware, replace these with your local Wi-Fi credentials locally. Do not publish private Wi-Fi credentials.
 
 ## MQTT settings
-
-The demo sketch uses:
 
 - Broker: `test.mosquitto.org`
 - Port: `1883` (unencrypted)
 - Topic: `vigilant-potato/esp32/telemetry`
 
-Example payload:
+Example JSON payload:
 
 ```json
 {"temperature":27.5,"humidity":61.2}
 ```
 
-This is a public demonstration broker, not a private or secure production service. Use a unique topic and never send sensitive information through it.
+This is a public demonstration broker, not a private or secure production service. Do not send sensitive information through it.
 
 ## Build and test
 
-1. Install Arduino IDE 2 and ESP32 board support.
-2. Install all required libraries listed above.
-3. Copy and configure `secrets.h` locally.
-4. Open `VigilantPotato/VigilantPotato.ino` in Arduino IDE.
-5. Select the correct ESP32 board and port (for a physical board).
-6. Click **Verify** before uploading.
-7. Open Serial Monitor at **115200 baud** and check the Wi-Fi, Blynk, MQTT, DHT22, and OLED messages.
+1. Install ESP32 board support and the libraries listed in `VigilantPotato/LIBRARIES.md`.
+2. Replace the Blynk token placeholder with your own token for local testing.
+3. Open `VigilantPotato/VigilantPotato.ino` in Arduino IDE and select the correct ESP32 board.
+4. Click **Verify** to compile, then upload to a physical board if available.
+5. Open Serial Monitor at **115200 baud** and check the OLED, DHT22, Wi-Fi, MQTT, and Blynk messages.
 
-Test the sensor and display first, then Wi-Fi, then MQTT, and finally Blynk. A successful MQTT connection does not prove that Blynk is connected; they are separate services.
+The project owner reports that the sketch works in Wokwi and verifies successfully in Arduino IDE. A successful compile alone does not confirm that every cloud connection is online.
 
-## Security note
+## Security
 
-A Blynk authentication token was included in a message shared during development. For safety, regenerate that device token in Blynk before using the project, and keep the replacement token only in your local, untracked `secrets.h` file.
+Never commit a real Blynk token, private Wi-Fi password, or other credentials. The root `.gitignore` excludes `VigilantPotato/secrets.h`; keep any local secret file untracked. The MQTT demo broker is public and unencrypted.
