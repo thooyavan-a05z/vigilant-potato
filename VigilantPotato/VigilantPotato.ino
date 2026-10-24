@@ -1,126 +1,218 @@
+#define BLYNK_TEMPLATE_ID "TMPL3QRrt5UMK"
+#define BLYNK_TEMPLATE_NAME "Vigilant Potato"
+#include "secrets.h"
+#define BLYNK_AUTH_TOKEN BLYNK_AUTH_TOKEN_VALUE
+#define BLYNK_PRINT Serial
+
 #include <WiFi.h>
-#include <PubSubClient.h>
-#include <DHTesp.h>
+#include <WiFiClient.h>
+#include <BlynkSimpleEsp32_SSL.h>
 #include <Wire.h>
+#include <DHT.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SH110X.h>
+#include <PubSubClient.h>
 
-// Vigilant Potato — Arduino IDE sketch
-// DHT22 DATA -> GPIO 15; OLED SDA -> GPIO 21; OLED SCL -> GPIO 22.
-
-#define DHT_PIN 15
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 128
+// IMPORTANT: define BLYNK_AUTH_TOKEN_VALUE in a local secrets.h file.
+// Do not commit your real Blynk token to GitHub.
 
 const char* WIFI_SSID = "Wokwi-GUEST";
 const char* WIFI_PASSWORD = "";
-const char* MQTT_HOST = "test.mosquitto.org";
-const int MQTT_PORT = 1883;
-const char* MQTT_TOPIC = "vigilant-potato/esp32/temperature";
 
-DHTesp dht;
-WiFiClient wifiClient;
-PubSubClient mqtt(wifiClient);
+const char* MQTT_SERVER = "test.mosquitto.org";
+const int MQTT_PORT = 1883;
+const char* MQTT_TOPIC = "vigilant-potato/esp32/telemetry";
+
+#define DHTPIN 4
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+// Grove SH1107 is commonly a 128x128 display. Confirm the exact board.
+// If your actual display is SSD1306 128x64, use Adafruit_SSD1306 instead.
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 128
+#define OLED_ADDR 0x3C
+
 Adafruit_SH1107 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
-unsigned long lastPublish = 0;
-const unsigned long PUBLISH_INTERVAL_MS = 5000;
-bool displayReady = false;
+WiFiClient espClient;
+PubSubClient mqtt(espClient);
+BlynkTimer timer;
 
-void connectWiFi() {
+bool oledReady = false;
+float temperature = NAN;
+float humidity = NAN;
+
+unsigned long lastWiFiAttempt = 0;
+unsigned long lastMQTTAttempt = 0;
+unsigned long lastBlynkAttempt = 0;
+
+const unsigned long WIFI_RETRY_MS = 10000;
+const unsigned long MQTT_RETRY_MS = 5000;
+const unsigned long BLYNK_RETRY_MS = 15000;
+
+void startWiFi() {
+  Serial.println("Starting Wi-Fi connection...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(300);
-    Serial.print(".");
-  }
-  Serial.println("\nWi-Fi connected");
+  lastWiFiAttempt = millis();
 }
 
-void connectMQTT() {
-  while (!mqtt.connected()) {
-    String clientId = "vigilant-potato-" + String((uint32_t)ESP.getEfuseMac(), HEX);
-    Serial.print("Connecting to MQTT...");
-    if (mqtt.connect(clientId.c_str())) {
-      Serial.println("connected");
-    } else {
-      Serial.print("failed, state=");
-      Serial.println(mqtt.state());
-      delay(2000);
-    }
+void maintainWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  if (millis() - lastWiFiAttempt >= WIFI_RETRY_MS) {
+    Serial.println("Retrying Wi-Fi...");
+    WiFi.disconnect();
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    lastWiFiAttempt = millis();
   }
 }
 
-void showMessage(const char* line1, const char* line2) {
-  if (!displayReady) return;
+void maintainMQTT() {
+  if (WiFi.status() != WL_CONNECTED || mqtt.connected()) return;
+  if (millis() - lastMQTTAttempt < MQTT_RETRY_MS) return;
+
+  lastMQTTAttempt = millis();
+  String clientId = "VigilantPotato-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  Serial.print("Connecting to MQTT... ");
+  if (mqtt.connect(clientId.c_str())) {
+    Serial.println("CONNECTED");
+  } else {
+    Serial.print("FAILED, state = ");
+    Serial.println(mqtt.state());
+  }
+}
+
+void maintainBlynk() {
+  if (WiFi.status() != WL_CONNECTED || Blynk.connected()) return;
+  if (millis() - lastBlynkAttempt < BLYNK_RETRY_MS) return;
+
+  lastBlynkAttempt = millis();
+  Serial.println("Connecting to Blynk Cloud...");
+
+  if (Blynk.connect(1000)) {
+    Serial.println("BLYNK CONNECTED");
+  } else {
+    Serial.println("BLYNK CONNECTION FAILED");
+  }
+}
+
+void updateOLED() {
+  if (!oledReady) return;
+
   display.clearDisplay();
   display.setTextColor(SH110X_WHITE);
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.println(line1);
-  display.println(line2);
+  display.println("VIGILANT POTATO");
+  display.drawLine(0, 12, SCREEN_WIDTH - 1, 12, SH110X_WHITE);
+
+  display.setTextSize(2);
+  display.setCursor(0, 24);
+  display.print("T:");
+  display.print(temperature, 1);
+  display.println(" C");
+
+  display.setCursor(0, 52);
+  display.print("H:");
+  display.print(humidity, 1);
+  display.println("%");
   display.display();
+}
+
+void readSensorAndPublish() {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (isnan(t) || isnan(h)) {
+    Serial.println("ERROR: DHT22 reading failed. Check GPIO 4 and wiring.");
+    return;
+  }
+
+  temperature = t;
+  humidity = h;
+  Serial.printf("Temperature: %.1f C | Humidity: %.1f%%\n", temperature, humidity);
+
+  updateOLED();
+
+  char payload[128];
+  snprintf(payload, sizeof(payload),
+           "{\"temperature\":%.1f,\"humidity\":%.1f}", temperature, humidity);
+
+  if (mqtt.connected()) {
+    if (mqtt.publish(MQTT_TOPIC, payload)) {
+      Serial.print("MQTT PUBLISHED: ");
+      Serial.println(payload);
+    } else {
+      Serial.println("MQTT PUBLISH FAILED");
+    }
+  } else {
+    Serial.println("MQTT offline; will retry.");
+  }
+}
+
+void sendToBlynk() {
+  if (!Blynk.connected()) {
+    Serial.println("Blynk offline; waiting for reconnect.");
+    return;
+  }
+  if (isnan(temperature) || isnan(humidity)) {
+    Serial.println("Waiting for valid sensor readings.");
+    return;
+  }
+
+  Blynk.virtualWrite(V0, temperature);
+  Blynk.virtualWrite(V1, humidity);
+  Serial.printf("BLYNK SENT: V0=%.1f C, V1=%.1f%%\n", temperature, humidity);
 }
 
 void setup() {
   Serial.begin(115200);
-  dht.setup(DHT_PIN, DHTesp::DHT22);
-
   Wire.begin(21, 22);
-  // SH1107 I2C address is commonly 0x3C; verify your board's documentation.
-  displayReady = display.begin(0x3C, true);
-  if (!displayReady) {
-    Serial.println("OLED not found. Check controller, I2C address and wiring.");
+  dht.begin();
+
+  oledReady = display.begin(OLED_ADDR, true);
+  if (oledReady) {
+    display.clearDisplay();
+    display.setTextColor(SH110X_WHITE);
+    display.setTextSize(1);
+    display.setCursor(0, 0);
+    display.println("Vigilant Potato");
+    display.println("Connecting...");
+    display.display();
   } else {
-    showMessage("Vigilant Potato", "Starting...");
+    Serial.println("OLED initialization failed: check controller/address/wiring.");
   }
 
-  connectWiFi();
-  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+  mqtt.setServer(MQTT_SERVER, MQTT_PORT);
+  mqtt.setKeepAlive(30);
+  mqtt.setSocketTimeout(2);
+
+  // Use the Blynk Cloud SSL endpoint on port 443.
+  Blynk.config(BLYNK_AUTH_TOKEN, "blynk.cloud", 443);
+
+  startWiFi();
+
+  // First attempts happen quickly; subsequent retries are rate-limited.
+  lastBlynkAttempt = millis() - BLYNK_RETRY_MS;
+  lastMQTTAttempt = millis() - MQTT_RETRY_MS;
+
+  timer.setInterval(5000L, readSensorAndPublish);
+  timer.setInterval(5000L, sendToBlynk);
+  Serial.println("Vigilant Potato started.");
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) connectWiFi();
-  if (!mqtt.connected()) connectMQTT();
-  mqtt.loop();
+  maintainWiFi();
 
-  if (millis() - lastPublish >= PUBLISH_INTERVAL_MS) {
-    lastPublish = millis();
-    TempAndHumidity reading = dht.getTempAndHumidity();
-
-    if (isnan(reading.temperature) || isnan(reading.humidity)) {
-      Serial.println("DHT22 read failed. Check sensor wiring.");
-      showMessage("DHT22 read failed", "Check wiring");
-      return;
-    }
-
-    char payload[100];
-    snprintf(payload, sizeof(payload),
-             "{\"temperature_c\":%.1f,\"humidity_pct\":%.1f}",
-             reading.temperature, reading.humidity);
-
-    bool sent = mqtt.publish(MQTT_TOPIC, payload);
-    Serial.print("MQTT publish ");
-    Serial.println(sent ? "OK" : "FAILED");
-    Serial.println(payload);
-
-    if (displayReady) {
-      display.clearDisplay();
-      display.setTextColor(SH110X_WHITE);
-      display.setTextSize(1);
-      display.setCursor(0, 0);
-      display.println("Vigilant Potato");
-      display.println("Temperature");
-      display.setTextSize(2);
-      display.print(reading.temperature, 1);
-      display.println(" C");
-      display.setTextSize(1);
-      display.print("Humidity: ");
-      display.print(reading.humidity, 1);
-      display.println("%");
-      display.println(sent ? "MQTT: sent" : "MQTT: failed");
-      display.display();
-    }
+  if (WiFi.status() == WL_CONNECTED) {
+    Blynk.run();
+    mqtt.loop();
+    maintainMQTT();
+    maintainBlynk();
   }
+
+  timer.run();
 }
