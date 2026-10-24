@@ -5,7 +5,7 @@ Install these libraries using **Sketch > Include Library > Manage Libraries**:
 - DHTesp
 - PubSubClient
 - Adafruit GFX Library
-- Adafruit SH110X
+- Adafruit SSD1306
 
 Also install ESP32 board support from Boards Manager (search for **esp32** by Espressif Systems).
 
