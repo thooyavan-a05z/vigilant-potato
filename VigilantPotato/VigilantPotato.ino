@@ -30,7 +30,7 @@ DHT dht(DHTPIN, DHTTYPE);
 // Grove SH1107 is commonly a 128x128 display. Confirm the exact board.
 // If your actual display is SSD1306 128x64, use Adafruit_SSD1306 instead.
 #define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 128
+#define SCREEN_HEIGHT 64
 #define OLED_ADDR 0x3C
 
 Adafruit_SH1107 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
