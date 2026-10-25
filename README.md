@@ -4,6 +4,8 @@ An embedded IoT project for monitoring temperature and relative humidity with an
 
 Built with Arduino C++ as a hands-on project in embedded systems, sensor interfacing, Wi-Fi connectivity, and IoT messaging.
 
+▶️ **Run the Wokwi simulation:** [Open Vigilant Potato in Wokwi](https://wokwi.com/projects/478318329510291457)
+
 ## ✨ Features
 
 - Reads temperature and relative humidity from a DHT22 sensor.
@@ -178,7 +180,7 @@ Make sure the virtual pins and datastream types in Blynk match the firmware.
 
 ## 🗺️ Possible improvements
 
-- [ ] Add a Wokwi simulation link and real screenshots of the circuit and dashboard.
+- [ ] Add screenshots of the running circuit and Blynk dashboard.
 - [ ] Move credentials from the main sketch into a local, Git-ignored configuration file.
 - [ ] Add clear sensor-error and network-status indicators.
 - [ ] Improve non-blocking reconnect behavior.
